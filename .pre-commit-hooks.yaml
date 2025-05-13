@@ -1,0 +1,6 @@
+- id: prepare-commit-message-from-branch
+  name: Prepare commit message (add JIRA ID from branch)
+  entry: scripts/prepare-commit-msg
+  language: script
+  stages: [prepare-commit-msg]
+  always_run: true

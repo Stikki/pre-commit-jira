@@ -1,0 +1,76 @@
+#!/bin/bash
+
+# Script to prepend JIRA issue ID from branch name to commit message if missing.
+# Usage: ./scripts/git-hooks/prepare-commit-msg <commit_msg_file> [<commit_source> <commit_sha>]
+
+COMMIT_MSG_FILE=$1
+COMMIT_SOURCE=$2
+# SHA1=$3 # We don't need the SHA1 for this script
+
+# --- Configuration ---
+# Regex to find JIRA IDs (e.g., JIRA-1234, ABC-567) in the branch name
+# This looks for patterns like 'JIRA-123' at the start, or after '/', '_', or '-'
+BRANCH_JIRA_REGEX='(^|/|_|-)([A-Z]+-[0-9]+)'
+
+# Regex to check if the commit message *already* has a JIRA ID
+COMMIT_JIRA_REGEX='\[[A-Z]+-[0-9]+\]'
+# --- End Configuration ---
+
+# Only run on initial commits (message source) or template source
+# Avoid running on merge, squash, or existing commit (amend) messages
+# You might want to adjust this depending on your workflow
+if [[ "$COMMIT_SOURCE" = "merge" || "$COMMIT_SOURCE" = "squash" ]]; then
+   exit 0
+fi
+
+# Read the current commit message
+commit_msg=$(cat "$COMMIT_MSG_FILE")
+
+# Check if commit message already contains a JIRA ID
+if [[ "$commit_msg" =~ $COMMIT_JIRA_REGEX ]]; then
+   # echo "Commit message already contains JIRA ID. Skipping."
+   exit 0
+fi
+
+# Get the current branch name
+branch_name=$(git symbolic-ref --short HEAD 2>/dev/null)
+
+if [ -z "$branch_name" ]; then
+   # echo "Could not determine branch name (maybe detached HEAD?). Skipping JIRA ID insertion."
+   exit 0 # Cannot get branch name
+fi
+
+# Extract JIRA ID from branch name
+jira_id=""
+if [[ "$branch_name" =~ $BRANCH_JIRA_REGEX ]]; then
+   # Extract the second capture group (the actual JIRA ID)
+   jira_id="${BASH_REMATCH[2]}"
+fi
+
+if [ -z "$jira_id" ]; then
+   # echo "No JIRA ID found in branch name '$branch_name'. Skipping."
+   exit 0 # No JIRA ID found in branch
+fi
+
+# Format the JIRA tag
+jira_tag="[$jira_id]"
+
+# Prepend the JIRA tag to the commit message
+# Try to insert it after 'type(scope): ' if that pattern exists
+# The regex pattern for matching conventional commit prefix
+CONVENTIONAL_COMMIT_REGEX='^([a-zA-Z]+(\([^)]+\))?!?:)' # Added !? for breaking change indicator
+if [[ "$commit_msg" =~ $CONVENTIONAL_COMMIT_REGEX ]]; then
+   # Insert after the type/scope prefix and colon
+   # Using sed for potentially complex messages
+   modified_msg=$(echo "$commit_msg" | sed -E "s/${CONVENTIONAL_COMMIT_REGEX}/\1 ${jira_tag}/")
+   echo "prep-commit-msg: Inserted JIRA ID '$jira_tag' after type/scope."
+else
+   # Prepend if no type/scope pattern found
+   modified_msg="${jira_tag} ${commit_msg}"
+   echo "prep-commit-msg: Prepended JIRA ID '$jira_tag'."
+fi
+
+# Write the modified message back to the file
+echo "$modified_msg" > "$COMMIT_MSG_FILE"
+
+exit 0
